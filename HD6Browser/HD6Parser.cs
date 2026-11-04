@@ -46,8 +46,11 @@ namespace HD6Browser
                 uint entryTableOffset = br.ReadUInt32();    // 0x25C70
 
                 // 2. Load Dictionary
+                // We load the raw byte arrays instead of pre-decoding them into strings.
+                // This prevents multi-byte Shift-JIS characters from getting mangled if they 
+                // are split across two different dictionary fragments.
                 fs.Position = dictOffset;
-                var dict = new List<string>();
+                var dict = new List<byte[]>();
                 var nameBytes = new List<byte>();
                 long dictEnd = dictOffset + dictSize;
 
@@ -56,7 +59,7 @@ namespace HD6Browser
                     byte b = br.ReadByte();
                     if (b == 0)
                     {
-                        dict.Add(FileNameEncoding.GetString(nameBytes.ToArray()));
+                        dict.Add(nameBytes.ToArray());
                         nameBytes.Clear();
                     }
                     else
@@ -79,7 +82,7 @@ namespace HD6Browser
                     long datOffsetBytes = (long)fileOffset * 0x800;     // 0x800 multiplier
                     long sizeBytes = (long)fileSize * sizeMultiplier;  // 0x10 multiplier
 
-                    // Decode Filename String
+                    // Decode Filename String using the raw byte dictionary
                     fs.Position = filenameTableOffset + nameOffset;
                     string fullPath = DecodePath(br, dict);
 
@@ -98,9 +101,10 @@ namespace HD6Browser
             return entries;
         }
 
-        private static string DecodePath(BinaryReader br, List<string> dict)
+        private static string DecodePath(BinaryReader br, List<byte[]> dict)
         {
-            var sb = new StringBuilder();
+            var pathBytes = new List<byte>();
+
             while (true)
             {
                 // Decode LEB128 Variable-Length Integer
@@ -117,9 +121,14 @@ namespace HD6Browser
                 if (index == 0 || index >= dict.Count)
                     break;
 
-                sb.Append(dict[(int)index]);
+                // Concatenate the raw byte fragments together first
+                pathBytes.AddRange(dict[(int)index]);
             }
-            return sb.ToString();
+
+            // Decode the fully assembled byte array as Shift-JIS.
+            // This guarantees Japanese file paths decode correctly even if 
+            // a single multi-byte character was split across two fragments.
+            return FileNameEncoding.GetString(pathBytes.ToArray());
         }
     }
 }
